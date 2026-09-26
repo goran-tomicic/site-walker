@@ -1,8 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
-import { runJourney } from "./agent/runner.js";
-import { buildMarkdownReport } from "./report/markdown.js";
-import type { Journey } from "./types.js";
+import { executeJourney, loadJourney } from "./agent/execute.js";
 
 async function main() {
   const journeyPath = process.argv[2];
@@ -11,17 +7,14 @@ async function main() {
     process.exit(1);
   }
 
-  const journey = JSON.parse(await readFile(journeyPath, "utf-8")) as Journey;
-
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const outDir = path.join("reports", `${journey.name.replace(/\s+/g, "-").toLowerCase()}-${stamp}`);
-  await mkdir(outDir, { recursive: true });
+  const journey = await loadJourney(journeyPath);
 
   console.log(`Running journey "${journey.name}" against ${journey.targetUrl}...`);
-  const run = await runJourney(journey, outDir);
-
-  const reportPath = path.join(outDir, "report.md");
-  await writeFile(reportPath, buildMarkdownReport(run, outDir), "utf-8");
+  const { run, reportPath } = await executeJourney(journey, (event) => {
+    if (event.type === "step-started") console.log(`  step ${event.stepId}: ${event.description}`);
+    if (event.type === "action") console.log(`    action: ${event.action.type} — ${event.action.reasoning}`);
+    if (event.type === "step-finished") console.log(`  -> ${event.status}: ${event.frictionNote}`);
+  });
 
   const passed = run.steps.filter((s) => s.status !== "blocked").length;
   console.log(`Done: ${passed}/${run.steps.length} steps completed.`);

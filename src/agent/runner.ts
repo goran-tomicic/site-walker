@@ -3,7 +3,7 @@ import path from "node:path";
 import { BrowserSession } from "../browser/session.js";
 import { decideAction, judgeOutcome } from "../claude/client.js";
 import { BLOCKED_FIELD_PATTERNS, isDomainAllowed } from "../config.js";
-import type { AgentAction, Journey, RunResult, StepResult } from "../types.js";
+import type { AgentAction, Journey, RunEventListener, RunResult, StepResult } from "../types.js";
 
 async function guardedFill(session: BrowserSession, action: Extract<AgentAction, { type: "fill" }>) {
   const identity = await session.fieldIdentity(action.elementIndex);
@@ -37,6 +37,8 @@ async function attemptStep(
   step: StepResult["step"],
   screenshotDir: string,
   attemptLabel: string,
+  attemptNumber: number,
+  onEvent?: RunEventListener,
   excludeReasoning?: string
 ): Promise<{ actions: AgentAction[]; passed: boolean; frictionNote: string; screenshotPath: string }> {
   const beforeUrl = session.url();
@@ -55,6 +57,7 @@ async function attemptStep(
 
     const action = await decideAction(step, elements, shotPath, history, excludeReasoning);
     actions.push(action);
+    onEvent?.({ type: "action", stepId: step.id, attempt: attemptNumber, action, screenshotPath: shotPath });
 
     if (action.type === "none") break;
 
@@ -75,7 +78,7 @@ async function attemptStep(
   return { actions, passed: judgement.passed, frictionNote: judgement.frictionNote, screenshotPath: finalShot };
 }
 
-export async function runJourney(journey: Journey, outDir: string): Promise<RunResult> {
+export async function runJourney(journey: Journey, outDir: string, onEvent?: RunEventListener): Promise<RunResult> {
   const screenshotDir = path.join(outDir, "screenshots");
   await mkdir(screenshotDir, { recursive: true });
 
@@ -85,6 +88,8 @@ export async function runJourney(journey: Journey, outDir: string): Promise<RunR
   const startedAt = new Date().toISOString();
   const steps: StepResult[] = [];
 
+  onEvent?.({ type: "run-started", journeyName: journey.name, targetUrl: journey.targetUrl });
+
   try {
     if (!isDomainAllowed(journey.targetUrl)) {
       throw new Error(`Target URL ${journey.targetUrl} is not in ALLOWED_TARGET_DOMAINS`);
@@ -93,9 +98,10 @@ export async function runJourney(journey: Journey, outDir: string): Promise<RunR
 
     for (const step of journey.steps) {
       let result: StepResult;
+      onEvent?.({ type: "step-started", stepId: step.id, description: step.description });
 
       try {
-        const first = await attemptStep(session, journey, step, screenshotDir, "attempt1");
+        const first = await attemptStep(session, journey, step, screenshotDir, "attempt1", 1, onEvent);
 
         if (first.passed) {
           result = {
@@ -107,7 +113,16 @@ export async function runJourney(journey: Journey, outDir: string): Promise<RunR
             frictionNote: first.frictionNote,
           };
         } else {
-          const second = await attemptStep(session, journey, step, screenshotDir, "attempt2", first.frictionNote);
+          const second = await attemptStep(
+            session,
+            journey,
+            step,
+            screenshotDir,
+            "attempt2",
+            2,
+            onEvent,
+            first.frictionNote
+          );
 
           result = second.passed
             ? {
@@ -142,10 +157,23 @@ export async function runJourney(journey: Journey, outDir: string): Promise<RunR
       }
 
       steps.push(result);
+      onEvent?.({
+        type: "step-finished",
+        stepId: step.id,
+        status: result.status,
+        frictionNote: result.frictionNote,
+        screenshotPath: result.screenshotPath,
+      });
     }
+  } catch (err) {
+    onEvent?.({ type: "run-error", message: err instanceof Error ? err.message : String(err) });
+    throw err;
   } finally {
     await session.close();
   }
+
+  const passed = steps.filter((s) => s.status !== "blocked").length;
+  onEvent?.({ type: "run-finished", passed, total: steps.length });
 
   return { journey, steps, startedAt, finishedAt: new Date().toISOString() };
 }

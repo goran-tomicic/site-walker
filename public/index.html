@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>site-walker</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header>
+    <h1>site-walker</h1>
+    <p class="subtitle">Journey-testing agent dashboard</p>
+  </header>
+
+  <main>
+    <section class="panel">
+      <h2>Run a journey</h2>
+      <div class="run-controls">
+        <select id="journey-select"></select>
+        <button id="run-button">Run</button>
+        <span id="run-status"></span>
+      </div>
+      <div id="live-summary" class="summary hidden"></div>
+      <div id="live-steps" class="steps"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Past runs</h2>
+      <div id="past-runs" class="past-runs"></div>
+      <div id="past-run-detail" class="steps"></div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

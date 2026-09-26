@@ -48,3 +48,13 @@ export interface RunResult {
   startedAt: string;
   finishedAt: string;
 }
+
+export type RunEvent =
+  | { type: "run-started"; journeyName: string; targetUrl: string }
+  | { type: "step-started"; stepId: number; description: string }
+  | { type: "action"; stepId: number; attempt: number; action: AgentAction; screenshotPath: string }
+  | { type: "step-finished"; stepId: number; status: StepStatus; frictionNote: string; screenshotPath: string }
+  | { type: "run-finished"; passed: number; total: number }
+  | { type: "run-error"; message: string };
+
+export type RunEventListener = (event: RunEvent) => void;
