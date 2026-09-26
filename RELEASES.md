@@ -2,7 +2,8 @@
 
 One entry per push to `main`. Newest first.
 
-## Unreleased (branch: `feature/portfolio-journey`)
+## 2026-09-26 — Portfolio journey + stale-element/retry fixes
+- Commit: `a73250f`
 - Added a second journey, `data/journeys/portfolio.json`, targeting goran-tomicic.xyz (homepage → work section → open a project → find contact). `ALLOWED_TARGET_DOMAINS` now includes this domain.
 - Fixed a real bug: element interactions (click/fill) used raw Playwright `ElementHandle`s, which go stale on animated/client-rendered pages (this portfolio is Next.js) — switched to Playwright `Locator`s that re-resolve at interaction time instead.
 - Fixed a second bug: when an action genuinely failed to execute (e.g. a click timeout), the exception skipped the "try one alternative path" logic entirely and went straight to a hard blocker. Execution failures are now treated as a failed attempt like a judged failure, so the alternative-path retry runs as SPEC requires.
