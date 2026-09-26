@@ -44,8 +44,11 @@ export function buildMarkdownReport(run: RunResult, outDir: string): string {
     lines.push(`- Expected: ${s.step.expected}`);
     lines.push(`- Result: ${statusLabel(s.status)}`);
     lines.push(`- Friction note: ${s.frictionNote}`);
-    if (s.alternativeAction) {
-      lines.push(`- Alternative path tried: ${s.alternativeAction.type} — ${s.alternativeAction.reasoning}`);
+    if (s.actions.length) {
+      lines.push(`- Actions: ${s.actions.map((a) => a.type).join(" → ")}`);
+    }
+    if (s.alternativeActions) {
+      lines.push(`- Alternative path tried: ${s.alternativeActions.map((a) => a.type).join(" → ")}`);
     }
     lines.push(`- Screenshot: ![step ${s.step.id}](${relShot})`);
   }

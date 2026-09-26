@@ -37,8 +37,8 @@ export interface StepResult {
   step: JourneyStep;
   status: StepStatus;
   screenshotPath: string;
-  action: AgentAction | null;
-  alternativeAction: AgentAction | null;
+  actions: AgentAction[];
+  alternativeActions: AgentAction[] | null;
   frictionNote: string;
 }
 

@@ -29,39 +29,50 @@ async function executeAction(session: BrowserSession, action: AgentAction): Prom
   }
 }
 
+const MAX_ACTIONS_PER_ATTEMPT = 5;
+
 async function attemptStep(
   session: BrowserSession,
   journey: Journey,
   step: StepResult["step"],
   screenshotDir: string,
   attemptLabel: string,
-  history: string[],
   excludeReasoning?: string
-): Promise<{ action: AgentAction; passed: boolean; frictionNote: string; screenshotPath: string }> {
-  const elements = await session.scanInteractiveElements();
-  const preShot = path.join(screenshotDir, `step-${step.id}-${attemptLabel}-before.png`);
-  await session.screenshot(preShot);
-
-  const action = await decideAction(step, elements, preShot, history, excludeReasoning);
+): Promise<{ actions: AgentAction[]; passed: boolean; frictionNote: string; screenshotPath: string }> {
   const beforeUrl = session.url();
-
   if (!isDomainAllowed(beforeUrl)) {
     throw new Error(`Refusing to act: ${beforeUrl} is not in ALLOWED_TARGET_DOMAINS`);
   }
 
-  await executeAction(session, action);
+  const actions: AgentAction[] = [];
+  const history: string[] = [];
+  let shotPath = "";
 
-  const afterUrl = session.url();
-  if (!isDomainAllowed(afterUrl)) {
-    throw new Error(`Action navigated outside allowed domains: ${afterUrl}`);
+  for (let i = 0; i < MAX_ACTIONS_PER_ATTEMPT; i++) {
+    const elements = await session.scanInteractiveElements();
+    shotPath = path.join(screenshotDir, `step-${step.id}-${attemptLabel}-action${i}.png`);
+    await session.screenshot(shotPath);
+
+    const action = await decideAction(step, elements, shotPath, history, excludeReasoning);
+    actions.push(action);
+
+    if (action.type === "none") break;
+
+    await executeAction(session, action);
+    history.push(`${i + 1}. ${action.type} -> ${action.reasoning}`);
+
+    const afterUrl = session.url();
+    if (!isDomainAllowed(afterUrl)) {
+      throw new Error(`Action navigated outside allowed domains: ${afterUrl}`);
+    }
   }
 
-  const postShot = path.join(screenshotDir, `step-${step.id}-${attemptLabel}-after.png`);
-  await session.screenshot(postShot);
+  const finalShot = path.join(screenshotDir, `step-${step.id}-${attemptLabel}-final.png`);
+  await session.screenshot(finalShot);
 
-  const judgement = await judgeOutcome(step, action, beforeUrl, afterUrl, postShot);
+  const judgement = await judgeOutcome(step, actions, beforeUrl, session.url(), finalShot);
 
-  return { action, passed: judgement.passed, frictionNote: judgement.frictionNote, screenshotPath: postShot };
+  return { actions, passed: judgement.passed, frictionNote: judgement.frictionNote, screenshotPath: finalShot };
 }
 
 export async function runJourney(journey: Journey, outDir: string): Promise<RunResult> {
@@ -81,48 +92,38 @@ export async function runJourney(journey: Journey, outDir: string): Promise<RunR
     await session.goto(journey.targetUrl);
 
     for (const step of journey.steps) {
-      const history: string[] = [];
       let result: StepResult;
 
       try {
-        const first = await attemptStep(session, journey, step, screenshotDir, "attempt1", history);
-        history.push(`${first.action.type} -> ${first.frictionNote}`);
+        const first = await attemptStep(session, journey, step, screenshotDir, "attempt1");
 
         if (first.passed) {
           result = {
             step,
             status: "pass",
             screenshotPath: first.screenshotPath,
-            action: first.action,
-            alternativeAction: null,
+            actions: first.actions,
+            alternativeActions: null,
             frictionNote: first.frictionNote,
           };
         } else {
-          const second = await attemptStep(
-            session,
-            journey,
-            step,
-            screenshotDir,
-            "attempt2",
-            history,
-            first.frictionNote
-          );
+          const second = await attemptStep(session, journey, step, screenshotDir, "attempt2", first.frictionNote);
 
           result = second.passed
             ? {
                 step,
                 status: "pass-with-alternative",
                 screenshotPath: second.screenshotPath,
-                action: first.action,
-                alternativeAction: second.action,
+                actions: first.actions,
+                alternativeActions: second.actions,
                 frictionNote: second.frictionNote,
               }
             : {
                 step,
                 status: "blocked",
                 screenshotPath: second.screenshotPath,
-                action: first.action,
-                alternativeAction: second.action,
+                actions: first.actions,
+                alternativeActions: second.actions,
                 frictionNote: `${first.frictionNote} Alternative also failed: ${second.frictionNote}`,
               };
         }
@@ -134,8 +135,8 @@ export async function runJourney(journey: Journey, outDir: string): Promise<RunR
           step,
           status: "blocked",
           screenshotPath: errorShot,
-          action: null,
-          alternativeAction: null,
+          actions: [],
+          alternativeActions: null,
           frictionNote: message,
         };
       }

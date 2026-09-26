@@ -44,12 +44,16 @@ export async function decideAction(
   excludeReasoning?: string
 ): Promise<AgentAction> {
   const legend = elementLegend(elements);
-  const historyBlock = history.length ? `Actions already taken this step (avoid repeating a failed one):\n${history.join("\n")}` : "";
+  const historyBlock = history.length
+    ? `Actions already taken so far while working on THIS step, in order:\n${history.join("\n")}`
+    : "No actions taken yet for this step.";
   const excludeBlock = excludeReasoning
-    ? `The previous approach failed: "${excludeReasoning}". Try a genuinely different element or approach this time.`
+    ? `The previous full attempt at this step failed: "${excludeReasoning}". This is a fresh alternative attempt — try a genuinely different approach, not the same sequence.`
     : "";
 
   const prompt = `You are testing a website by navigating it like a real user, using ONLY the numbered interactive elements below and the screenshot for context. Never invent selectors or elements that are not in the list.
+
+A single journey step (like "log in") may require SEVERAL actions in sequence (e.g. fill username, fill password, then click the login button). You will be called again after each action with the updated page state, so only decide the ONE next action right now.
 
 Journey step goal: ${step.description}
 Expected outcome: ${step.expected}
@@ -60,15 +64,16 @@ ${excludeBlock}
 Interactive elements currently on screen (numbered):
 ${legend}
 
-Decide the single next action to make progress on this step. Respond with ONLY a JSON object, no prose, in one of these shapes:
+Decide the single next action. Respond with ONLY a JSON object, no prose, in one of these shapes:
 {"type":"click","elementIndex":<number>,"expectedOutcome":"...","reasoning":"..."}
 {"type":"fill","elementIndex":<number>,"value":"...","expectedOutcome":"...","reasoning":"..."}
 {"type":"wait","ms":<number>,"expectedOutcome":"...","reasoning":"..."}
-{"type":"none","expectedOutcome":"...","reasoning":"explain why no action is needed, e.g. the step's goal is already satisfied"}
+{"type":"none","expectedOutcome":"...","reasoning":"explain why no further action is needed — use this ONLY when the expected outcome above is already visibly true on screen right now"}
 
 Rules:
 - Only use "fill" for values needed to complete this specific journey step (e.g. a documented test username/password). Never fill in real or fake payment card numbers, addresses, phone numbers, emails, or other personal data.
-- Prefer the element whose visible text most directly matches the step's goal.`;
+- Prefer the element whose visible text most directly matches the step's goal.
+- If you just filled a field and there's an obvious next field or submit button still needed to complete the goal, keep going — don't stop early.`;
 
   const response = await anthropic.messages.create({
     model: config.model,
@@ -88,20 +93,22 @@ Rules:
 
 export async function judgeOutcome(
   step: JourneyStep,
-  action: AgentAction,
+  actions: AgentAction[],
   beforeUrl: string,
   afterUrl: string,
   screenshotPath: string
 ): Promise<Judgement> {
-  const prompt = `You just watched an automated browser take an action while testing a website journey step.
+  const actionsList = actions.map((a, i) => `${i + 1}. ${a.type} — ${a.reasoning}`).join("\n");
+  const prompt = `You just watched an automated browser attempt a website journey step, taking one or more actions in sequence.
 
 Journey step goal: ${step.description}
 Expected outcome: ${step.expected}
-Action taken: ${JSON.stringify(action)}
-URL before action: ${beforeUrl}
-URL after action: ${afterUrl}
+Actions taken, in order:
+${actionsList}
+URL before this step's first action: ${beforeUrl}
+URL after the last action: ${afterUrl}
 
-The attached screenshot shows the page state AFTER the action. Judge whether the step's goal was achieved.
+The attached screenshot shows the CURRENT page state, after all actions above. Judge whether the step's expected outcome is achieved right now — not whether the actions "seemed reasonable."
 
 Respond with ONLY a JSON object:
 {"passed": true|false, "frictionNote": "one short sentence describing any friction (unclear CTA, dead end, unexpected redirect, broken element), or a brief confirmation if it passed cleanly"}`;
