@@ -1,13 +1,16 @@
-import { chromium, type Browser, type ElementHandle, type Page } from "playwright";
+import { chromium, type Browser, type Locator, type Page } from "playwright";
 import type { InteractiveElement } from "../types.js";
 
-const INTERACTIVE_SELECTOR =
-  "a, button, input, select, textarea, [role=button], [role=link], [role=tab], [role=checkbox], [onclick]";
+const INTERACTIVE_TAGS = ["a", "button", "input", "select", "textarea", "[role=button]", "[role=link]", "[role=tab]", "[role=checkbox]", "[onclick]"];
+// :visible re-checks visibility at interaction time (not scan time), which matters on
+// animated/client-rendered pages where elements can appear, move, or unmount between
+// the initial scan and the moment the model decides to act on one.
+const INTERACTIVE_SELECTOR = INTERACTIVE_TAGS.map((t) => `${t}:visible`).join(", ");
 
 export class BrowserSession {
   private browser: Browser | null = null;
   private page: Page | null = null;
-  private handles: ElementHandle[] = [];
+  private scanned: Locator | null = null;
 
   async launch(): Promise<void> {
     this.browser = await chromium.launch({ headless: true });
@@ -33,70 +36,70 @@ export class BrowserSession {
     await this.requirePage().screenshot({ path, fullPage: false });
   }
 
-  /** Re-scans the page for interactive elements and returns a numbered legend for the model. */
+  /**
+   * Re-scans the page for interactive elements and returns a numbered legend for the model.
+   * The returned indices are re-resolved against the live DOM at interaction time (via
+   * Playwright Locators), so a click/fill still works even if the node re-rendered in the
+   * meantime — it only fails if the element is genuinely gone.
+   */
   async scanInteractiveElements(): Promise<InteractiveElement[]> {
     const page = this.requirePage();
-    const handles = await page.$$(INTERACTIVE_SELECTOR);
-    const visibleHandles: ElementHandle[] = [];
+    const locator = page.locator(INTERACTIVE_SELECTOR);
+    this.scanned = locator;
+
+    const count = await locator.count();
     const elements: InteractiveElement[] = [];
 
-    for (const handle of handles) {
-      const isVisible = await handle.isVisible().catch(() => false);
-      if (!isVisible) continue;
+    for (let i = 0; i < count; i++) {
+      const info = await locator
+        .nth(i)
+        .evaluate((el) => {
+          const e = el as HTMLElement;
+          const text = (e.innerText || e.getAttribute("value") || e.getAttribute("placeholder") || e.getAttribute("aria-label") || "").trim().slice(0, 80);
+          return {
+            tag: e.tagName.toLowerCase(),
+            role: e.getAttribute("role"),
+            inputType: e.tagName.toLowerCase() === "input" ? e.getAttribute("type") : null,
+            name: e.getAttribute("name") || e.getAttribute("id"),
+            text,
+          };
+        })
+        .catch(() => null);
 
-      const info = await handle.evaluate((el) => {
-        const e = el as HTMLElement;
-        const text = (e.innerText || e.getAttribute("value") || e.getAttribute("placeholder") || e.getAttribute("aria-label") || "").trim().slice(0, 80);
-        return {
-          tag: e.tagName.toLowerCase(),
-          role: e.getAttribute("role"),
-          inputType: e.tagName.toLowerCase() === "input" ? e.getAttribute("type") : null,
-          name: e.getAttribute("name") || e.getAttribute("id"),
-          text,
-        };
-      });
-
-      visibleHandles.push(handle);
-      elements.push({
-        index: visibleHandles.length - 1,
-        tag: info.tag,
-        role: info.role,
-        text: info.text,
-        inputType: info.inputType,
-        name: info.name,
-      });
+      if (!info) continue;
+      elements.push({ index: i, tag: info.tag, role: info.role, text: info.text, inputType: info.inputType, name: info.name });
     }
 
-    this.handles = visibleHandles;
     return elements;
   }
 
   async clickElement(index: number): Promise<void> {
-    const handle = this.handles[index];
-    if (!handle) throw new Error(`No scanned element at index ${index}`);
-    await handle.click({ timeout: 5000 });
+    await this.locatorAt(index).click({ timeout: 8000 });
     await this.settle();
   }
 
   async fillElement(index: number, value: string): Promise<void> {
-    const handle = this.handles[index];
-    if (!handle) throw new Error(`No scanned element at index ${index}`);
-    await handle.fill(value, { timeout: 5000 });
+    await this.locatorAt(index).fill(value, { timeout: 8000 });
   }
 
   async fieldIdentity(index: number): Promise<string> {
-    const handle = this.handles[index];
-    if (!handle) return "";
-    return handle.evaluate((el) => {
-      const e = el as HTMLElement;
-      return [e.getAttribute("name"), e.getAttribute("id"), e.getAttribute("autocomplete"), e.getAttribute("placeholder")]
-        .filter(Boolean)
-        .join(" ");
-    });
+    return this.locatorAt(index)
+      .evaluate((el) => {
+        const e = el as HTMLElement;
+        return [e.getAttribute("name"), e.getAttribute("id"), e.getAttribute("autocomplete"), e.getAttribute("placeholder")]
+          .filter(Boolean)
+          .join(" ");
+      })
+      .catch(() => "");
   }
 
   async close(): Promise<void> {
     await this.browser?.close();
+  }
+
+  private locatorAt(index: number): Locator {
+    if (!this.scanned) throw new Error("No elements scanned yet");
+    return this.scanned.nth(index);
   }
 
   private requirePage(): Page {

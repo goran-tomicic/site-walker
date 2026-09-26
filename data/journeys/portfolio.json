@@ -1,0 +1,27 @@
+{
+  "name": "portfolio-projects-to-contact",
+  "targetUrl": "https://goran-tomicic.xyz/",
+  "allowedDomains": ["goran-tomicic.xyz"],
+  "steps": [
+    {
+      "id": 1,
+      "description": "Land on the homepage and confirm it loads with visible navigation/content.",
+      "expected": "The homepage renders with a clear way to navigate to other sections (e.g. projects/work, about, contact)."
+    },
+    {
+      "id": 2,
+      "description": "Find and open the projects/work section.",
+      "expected": "A page or section listing projects/work is shown, with at least one project visible."
+    },
+    {
+      "id": 3,
+      "description": "Open one project to see its details.",
+      "expected": "A project detail view opens showing more information about that specific project."
+    },
+    {
+      "id": 4,
+      "description": "Find a way to contact the site owner (link, button, or form), without submitting any personal data.",
+      "expected": "A contact method is visible and reachable — e.g. a contact page, form, email link, or social links."
+    }
+  ]
+}

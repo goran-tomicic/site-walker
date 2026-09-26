@@ -5,6 +5,9 @@ import { decideAction, judgeOutcome } from "../claude/client.js";
 import { BLOCKED_FIELD_PATTERNS, isDomainAllowed } from "../config.js";
 import type { AgentAction, Journey, RunEventListener, RunResult, StepResult } from "../types.js";
 
+/** Thrown only for safety-boundary violations, which must abort the whole run — never treated as recoverable step friction. */
+class DomainViolationError extends Error {}
+
 async function guardedFill(session: BrowserSession, action: Extract<AgentAction, { type: "fill" }>) {
   const identity = await session.fieldIdentity(action.elementIndex);
   if (BLOCKED_FIELD_PATTERNS.some((re) => re.test(identity))) {
@@ -43,7 +46,7 @@ async function attemptStep(
 ): Promise<{ actions: AgentAction[]; passed: boolean; frictionNote: string; screenshotPath: string }> {
   const beforeUrl = session.url();
   if (!isDomainAllowed(beforeUrl)) {
-    throw new Error(`Refusing to act: ${beforeUrl} is not in ALLOWED_TARGET_DOMAINS`);
+    throw new DomainViolationError(`Refusing to act: ${beforeUrl} is not in ALLOWED_TARGET_DOMAINS`);
   }
 
   const actions: AgentAction[] = [];
@@ -61,12 +64,27 @@ async function attemptStep(
 
     if (action.type === "none") break;
 
-    await executeAction(session, action);
+    try {
+      await executeAction(session, action);
+    } catch (err) {
+      if (err instanceof DomainViolationError) throw err;
+      // A click/fill can genuinely fail on a real site (animating element, nothing at that
+      // index anymore, etc). That's step friction, not a run-ending error — surface it as a
+      // failed attempt so the normal "try one alternative" flow in runJourney still runs,
+      // instead of throwing and skipping straight to a hard blocker.
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        actions,
+        passed: false,
+        frictionNote: `Action failed: ${action.type} on element ${action.type === "wait" ? "" : (action as { elementIndex: number }).elementIndex} — ${message.split("\n")[0]}`,
+        screenshotPath: shotPath,
+      };
+    }
     history.push(`${i + 1}. ${action.type} -> ${action.reasoning}`);
 
     const afterUrl = session.url();
     if (!isDomainAllowed(afterUrl)) {
-      throw new Error(`Action navigated outside allowed domains: ${afterUrl}`);
+      throw new DomainViolationError(`Action navigated outside allowed domains: ${afterUrl}`);
     }
   }
 
