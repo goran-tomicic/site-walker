@@ -146,6 +146,9 @@ vite.config.ts.timestamp-*
 CLAUDE.md
 docs/
 
+# Generated run output (screenshots + reports)
+reports/
+
 # Python
 __pycache__/
 *.pyc

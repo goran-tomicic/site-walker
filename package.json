@@ -1,0 +1,22 @@
+{
+  "name": "site-walker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Agent that walks a defined user journey on a website and reports where the flow breaks or confuses.",
+  "scripts": {
+    "walk": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "postinstall": "playwright install chromium"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.0",
+    "dotenv": "^16.4.5",
+    "playwright": "^1.48.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

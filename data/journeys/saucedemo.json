@@ -1,0 +1,32 @@
+{
+  "name": "saucedemo-login-to-checkout-start",
+  "targetUrl": "https://www.saucedemo.com/",
+  "allowedDomains": ["saucedemo.com"],
+  "steps": [
+    {
+      "id": 1,
+      "description": "Land on the homepage and confirm the login form is visible.",
+      "expected": "A login form with username and password fields and a Login button is shown."
+    },
+    {
+      "id": 2,
+      "description": "Log in using the publicly documented standard test account (username: standard_user, password: secret_sauce).",
+      "expected": "The user is taken to the products/inventory page."
+    },
+    {
+      "id": 3,
+      "description": "Add the first product in the list to the cart.",
+      "expected": "The cart icon badge updates to show 1 item."
+    },
+    {
+      "id": 4,
+      "description": "Open the cart.",
+      "expected": "The cart page shows the item that was just added."
+    },
+    {
+      "id": 5,
+      "description": "Begin checkout by clicking the checkout button, without entering any personal information.",
+      "expected": "A checkout information form (name/address fields) appears, confirming the checkout flow starts correctly."
+    }
+  ]
+}
